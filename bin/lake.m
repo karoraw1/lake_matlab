@@ -1,4 +1,14 @@
-function [time_slices, concs_history, rates_history] = lake(oxygen_bubble_rate, nitrogen_source, nitrogen_ratio, carbon_source, oxygen_source, methane_source, t_max, fe_precipitation, carbon_precipitation, diffusion_constant, ma_op_o_fe_rate_const, ma_op_o_n_rate_const, ma_op_o_s_rate_const, ma_op_fe_n_rate_const, ma_op_ch4_o_rate_const, ma_op_ch4_s_rate_const, primary_ox_rate_const, c_lim_o, c_lim_n, c_lim_fe, c_lim_s, concs0_c, concs0_o, concs0_ntot, pm_ratio_n, concs0_fetot, pm_ratio_fe, concs0_stot, pm_ratio_s)
+function [time_slices, concs_history, rates_history] = lake(i, s)
+%% Lake function
+% This is the script in which the redox species dynamics are calculated.
+% It is called by the `mystic_main` function with two required arguments.
+% The inputs are two hash tables. One contains the chemical species names
+% and positions. The other contains the 29 parameters required by the model
+% as listed in `simulation_parameters.txt`. These values include initial 
+% species concentrations, type ratios, phase ratios, rate constants of 
+% specific species pairs, and other constraints. The function returns three
+% matrices containing concentrations, rates, and time slices(?) over the 
+% simulation period.
 
 %% Constants
 % These are constants that make assertions about the actual system
@@ -7,48 +17,38 @@ fixed_top_methane_level = 0.0;
 %% Simulation parameters
 % These are constants that affect the simulation but do not make
 % assertions about the actual system.
+
 n_x = 17;   % number of compartments
 n_time_slices = 100;
-
-%% Species map
-% import the species list using the separate function file:
-% "s" is a hash from a string that names the species to its index in the
-% concentration matrix
-[s, ~, n_species] = species_map();
+n_species = length(species_hash);
 
 %% Precipitation constants
 % assert the precipitation constants: a constant 0 means equal diffusion up
 % and down; +0.1 means a molecule is 10% as likely to go down as to go up;
 % -0.1 means 10% more likley to go up than down
-precipitation_constant_input = [
-    s('Fe+'), fe_precipitation
-    s('C'), carbon_precipitation
-];
+% Non-redox mineral precipitation–dissolution reaction?
+
+precipitation_constant_input = [s('Fe+'), i('fe_precipitation'); s('C'), i('carbon_precipitation')];
 
 %% Reaction constants
 % there are mass action reactions and the primary oxidations
-% primary oxidations follow Hunter, Wang, and Van Cappellen 1998
-% (abbreviated HWvC)
-
-% mass action, one product reactions (ma_op_rxns)
+% Primary oxidations follow Hunter, Wang, and Van Cappellen 1998 (abbreviated HWvC)
+% Secondary oxidations are arrayed in the following format:
+% aA + bB -> cC (columns: a, A, b, B, c, C, rate constant)
 ma_op_rxns = [
-    % secondary oxidations
-    % aA + bB -> cC (columns: a, A, b, B, c, C, rate constant)
-    % constants k_i are from HWvC
-    % units: [rates] = uM-1 yr-1
-    0.25 s('O')      1   s('Fe-')    1   s('Fe+')    ma_op_o_fe_rate_const   % k_2^sr = 1e7 M-1 yr-1
-    2    s('O')      1   s('N-')     1   s('N+')     ma_op_o_n_rate_const    % k_4^sr = 5e6 M-1 yr-1
-    2    s('O')      1   s('S-')     1   s('S+')     ma_op_o_s_rate_const    % k_5^sr = 1.6e5 M-1 yr-1
-    5    s('Fe-')    1   s('N+')     5   s('Fe+')    ma_op_fe_n_rate_const   % swo> my guess
-    1    s('CH4')    2   s('O')      1   s('null')   ma_op_ch4_o_rate_const  % k_9^sr = 1e10 M-1 yr-1
-    1    s('CH4')    1   s('S+')     1   s('S-')     ma_op_ch4_s_rate_const  % k_10^sr = 1e5 M-1 yr-1
+    0.25 s('O')      1   s('Fe-')    1   s('Fe+')    i('o_fe_rate_const')   % k_2^sr = 1e7 M-1 yr-1
+    2    s('O')      1   s('N-')     1   s('N+')     i('o_n_rate_const')    % k_4^sr = 5e6 M-1 yr-1
+    2    s('O')      1   s('S-')     1   s('S+')     i('o_s_rate_const')    % k_5^sr = 1.6e5 M-1 yr-1
+    5    s('Fe-')    1   s('N+')     5   s('Fe+')    i('fe_n_rate_const')   % swo> my guess
+    1    s('CH4')    2   s('O')      1   s('null')   i('ch4_o_rate_const')  % k_9^sr = 1e10 M-1 yr-1
+    1    s('CH4')    1   s('S+')     1   s('S-')     i('ch4_s_rate_const')  % k_10^sr = 1e5 M-1 yr-1
 ];
 [n_ma_op_rxns, ~] = size(ma_op_rxns);
 
 % primary oxidation terminal electron acceptors (po_teas)
+% columns: in species, out species, c_lim, # electrons (e_j)
+% units: [c_lim] = uM
 po_teas = [
-    % columns: in species, out species, c_lim, # electrons (e_j)
-    % units: [c_lim] = uM
     s('O')    s('null')  c_lim_o     4 % HWcV O2_lim=20; output is water
     s('N+')   s('null')  c_lim_n     5 % 5; output is N2
     s('Fe+')  s('Fe-')   c_lim_fe    1 % 0.1; had to adjust from HWvC on account of units (60.0)
@@ -97,18 +97,18 @@ D_plus = (1.0 + precipitation_constants) * D;
 D_minus = (1.0 - precipitation_constants) * D;
 
 % grab the unchanging columns from the reaction matrix
-ma_op_reac1_c = ma_op_rxns(:, 1)';
+ma_op_reac1_c = transpose(ma_op_rxns(:, 1));
 ma_op_reac1_i = ma_op_rxns(:, 2);
-ma_op_reac2_c = ma_op_rxns(:, 3)';
+ma_op_reac2_c = transpose(ma_op_rxns(:, 3));
 ma_op_reac2_i = ma_op_rxns(:, 4);
-ma_op_prod_c = ma_op_rxns(:, 5)';
+ma_op_prod_c = transpose(ma_op_rxns(:, 5));
 ma_op_prod_i = ma_op_rxns(:, 6);
-ma_op_rc = ma_op_rxns(:, 7)';
+ma_op_rc = transpose(ma_op_rxns(:, 7));
 
 po_tea_i = po_teas(:, 1);
 po_tea_prod_i = po_teas(:, 2);
 po_tea_clim = po_teas(:, 3);
-po_tea_e = po_teas(:, 4)';
+po_tea_e = transpose(po_teas(:, 4));
 
 
 %% Define the flux functions
