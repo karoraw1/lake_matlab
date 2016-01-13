@@ -16,7 +16,8 @@ fixed_top_methane_level = 0.0;
 
 %% Simulation parameters
 % These are constants that affect the simulation but do not make
-% assertions about the actual system.
+% assertions about the actual system. The default setting is 17 vertical
+% compartments, 100 time slices, and 9 species (+null).
 
 n_x = 17;   % number of compartments
 n_time_slices = 100;
@@ -43,6 +44,14 @@ ma_op_rxns = [
     1    s('CH4')    2   s('O')      1   s('null')   i('ch4_o_rate_const')  % k_9^sr = 1e10 M-1 yr-1
     1    s('CH4')    1   s('S+')     1   s('S-')     i('ch4_s_rate_const')  % k_10^sr = 1e5 M-1 yr-1
 ];
+
+%   0.2500    1.0000    1.0000    8.0000    1.0000    7.0000   10.0000 6
+%   2.0000    1.0000    1.0000    4.0000    1.0000    3.0000     5.000 6
+%   2.0000    1.0000    1.0000    6.0000    1.0000    5.0000    0.1600 6
+%   5.0000    8.0000    1.0000    3.0000    5.0000    7.0000    1.0000 ?
+%   1.0000    9.0000    2.0000    1.0000    1.0000   10.0000    10,000 6
+%   1.0000    9.0000    1.0000    5.0000    1.0000    6.0000    0.0100 5
+
 [n_ma_op_rxns, ~] = size(ma_op_rxns);
 
 % primary oxidation terminal electron acceptors (po_teas)
@@ -60,7 +69,9 @@ po_teas = [
 %% Initial concentrations
 % initialize the lake, asserting flat profiles for each metabolite
 % metabolites not mentioned have concentration 0
-concs0 = zeros(n_x, n_species);
+
+%this initializes the mass matrix with 17 rows by 10 columns 
+concs0 = zeros(n_x, n_species); 
 
 concs0(:, s('C')) = concs0_c;
 concs0(:, s('O')) = concs0_o;
@@ -77,12 +88,20 @@ concs0(:, s('Fe-')) = concs0_fetot - concs0(:, s('Fe+'));
 concs0(:, s('S+')) = concs0_stot / (1.0 + (1.0 / pm_ratio_s));
 concs0(:, s('S-')) = concs0_stot - concs0(:, s('S+'));
 
+%The initial values are 17 identical rows of this:
+% 'O'    'C'    'N+'    'N-'    'S+'    'S-'    'Fe+'    'Fe-'    'CH4'    'null'
+%50.  200.   90.9091    9.0909  227.2727   22.7273   54.5455    5.4545         0         0
 
 %% Internal parameters
 % These are parameters that simplify the code but make no assertions about
 % the mechanics of the simulation or the actual system
 
 % make the precipitation constants
+%This is initialized above as     
+%     Position  Probability
+% Fe+ 7.0000    0.3000
+% C   2.0000    0.3000
+
 precipitation_constants = zeros([1 n_species]);
 for i = 1: size(precipitation_constant_input, 1)
     idx = precipitation_constant_input(i, 1);
@@ -90,11 +109,19 @@ for i = 1: size(precipitation_constant_input, 1)
 
     precipitation_constants(idx) = val;
 end
+%this just maps the second column values to the appropriate column in the 
+%10-element row vector (indicated by the adjacent value in the first col) 
 
 % make new precipitation values
+% this link should be severed and recalculated based on the position in the
+% water column. it also shouldnt be called diffusion as RTR gives an 
+% measure of resistance to advective mixing
+
 D = diffusion_constant;
 D_plus = (1.0 + precipitation_constants) * D;
 D_minus = (1.0 - precipitation_constants) * D;
+
+
 
 % grab the unchanging columns from the reaction matrix
 ma_op_reac1_c = transpose(ma_op_rxns(:, 1));
