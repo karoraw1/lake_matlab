@@ -1,6 +1,8 @@
 %%Mystic Model Main script
 %This is the main script from which the Mysic Lake model is run.
-%This guide will take you step by step through the code.
+%This guide will take you step by step through the code. Yu input 
+%OTU data, concentrations of redox species, temperatures, windspeeds,
+%and bathymetry data
 
 %%Setup scripting environment
 

@@ -1,4 +1,4 @@
-function [datenums, temps] = temp_data()
+function [datenums, temps, density] = temp_data()
 
 temp = xlsread('CelsiusVDepth.xlsx');
 temps = temp(:,2:end);
